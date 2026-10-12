@@ -6,6 +6,8 @@
 #   semut check              type-check the backend (tov check)
 #   semut build [-Os]        dist/<Title>.app, ad-hoc signed
 #   semut launcher           (re)build the cached launcher only
+#   semut doctor             check the toolchain and the install
+#   semut version
 #
 # Written in sh, not Tov: the CLI has to spawn clang, tov and the launcher,
 # and Tov has no child processes yet.
@@ -217,6 +219,29 @@ EOF
   say "  frontend  $(du -sh "$app/Contents/Resources/app" | cut -f1)"
 }
 
+cmd_doctor() {
+  bad=0
+  ok() { printf '  ok    %s\n' "$*"; }
+  no() { printf '  MISSING  %s\n' "$*"; bad=1; }
+  say "semut $(cat "$ROOT/VERSION") at $ROOT"
+  ok "macOS $(sw_vers -productVersion)"
+  if command -v clang >/dev/null 2>&1; then ok "clang: $(clang --version | head -n 1)"; else no "clang: run xcode-select --install"; fi
+  if command -v xxd >/dev/null 2>&1; then ok "xxd"; else no "xxd: reinstall the Xcode command-line tools"; fi
+  if command -v tov >/dev/null 2>&1; then ok "tov: $(command -v tov) ($(tov version 2>/dev/null))"
+  elif [ -x "$HOME/.cargo/bin/tov" ]; then no "tov is in ~/.cargo/bin but not on PATH: . \"\$HOME/.cargo/env\""
+  else no "tov: curl -fsSL https://tov.sh/install.sh | sh"; fi
+  if [ -x "$LAUNCHER" ] && [ "$LAUNCHER" -nt "$ROOT/native/launcher-macos.m" ] && [ "$LAUNCHER" -nt "$ROOT/runtime/semut.js" ]; then
+    ok "launcher: $LAUNCHER"
+  else
+    say "  note  launcher not built yet (it builds on first semut dev/build, or run: semut launcher)"
+  fi
+  case $(command -v semut 2>/dev/null) in
+    '') say "  note  semut is not on PATH (run it as $0, or link it: ln -s \"$ROOT/semut\" ~/.local/bin/semut)" ;;
+    *) ok "semut on PATH: $(command -v semut)" ;;
+  esac
+  [ $bad = 0 ] && say "All good." || { say "Fix the MISSING lines above."; return 1; }
+}
+
 cmd=${1:-help}
 [ $# -gt 0 ] && shift
 case $cmd in
@@ -224,7 +249,9 @@ case $cmd in
   dev) cmd_dev "$@" ;;
   check) cmd_check "$@" ;;
   build) cmd_build "$@" ;;
+  doctor) cmd_doctor ;;
+  version|--version|-v) cat "$ROOT/VERSION" ;;
   launcher) rm -f "$LAUNCHER"; build_launcher; say "$LAUNCHER" ;;
-  help|-h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+  help|-h|--help) sed -n '2,10p' "$ROOT/semut" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command $cmd (try semut help)" ;;
 esac

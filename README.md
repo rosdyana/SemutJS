@@ -75,6 +75,7 @@ binary. That removed one constraint and forced one change:
 
 ```
 semut                    the CLI (POSIX sh; it has to spawn clang/tov, which Tov can't yet)
+install.sh               installer: prerequisites, Tov, clone, PATH link, launcher
 native/launcher-macos.m  window, webview, native built-ins, the socket server
 runtime/semut.js         page client (compiled into the launcher, injected at document start)
 runtime/semut.tov        backend SDK (copied into each app's backend/)
@@ -85,17 +86,133 @@ test/e2e/                self-driving end-to-end test (./test/e2e/run.sh)
 
 ## Install
 
-Needs macOS 12+, the Xcode command-line tools, and Tov
-(`curl -fsSL https://tov.sh/install.sh | sh`). If its build fails with
-"`if let` guards are experimental", your Rust is older than Tov needs; build it
-with a newer toolchain:
-`cargo +1.97.1 install --locked --path ~/.tov/src/crates/tov`.
+semut has no prebuilt binaries. You install it from source, and every app
+you build compiles on your own Mac.
+
+### What you need
+
+| | why | check | get it |
+|---|---|---|---|
+| macOS 12+ on Apple silicon | the launcher is AppKit + WKWebView; Tov targets arm64 macOS | `sw_vers` | |
+| Xcode command-line tools | clang builds the launcher and Tov's output; xxd embeds the page client | `xcode-select -p` | `xcode-select --install` |
+| git | clones semut and Tov | `git --version` | ships with the tools above |
+| Rust, recent stable | builds the Tov compiler (one time) | `rustc --version` | [rustup.rs](https://rustup.rs), then `rustup update stable` |
+| Tov | compiles your backend | `tov version` | the installer below gets it, or `curl -fsSL https://tov.sh/install.sh \| sh` |
+
+You don't need Node, npm or full Xcode.
+
+### Option A: one command
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rosdyana/semutjs/main/install.sh | sh
+```
+
+[`install.sh`](install.sh) runs these steps, and stops with a fix if one fails:
+
+1. Checks for macOS, git, clang and xxd.
+2. Installs Tov if `tov` isn't on your PATH. This builds Tov from source with
+   cargo and takes a few minutes.
+3. Clones semut into `~/.semut/src`. If a clone is already there, it updates it.
+4. Links `~/.local/bin/semut` to the clone.
+5. Builds the launcher once and caches it in `~/Library/Caches/semut`.
+
+You can change these locations with `SEMUT_DIR=…`, `SEMUT_BIN=…` and
+`SEMUT_REPO=…` (to point at a fork).
+
+### Option B: by hand from a clone
+
+```sh
+# 1. Tov (skip if `tov version` already works)
+curl -fsSL https://tov.sh/install.sh | sh
+. "$HOME/.cargo/env"                 # puts ~/.cargo/bin (where tov lives) on PATH
+tov version                          # -> tov 0.0.1
+
+# 2. semut
+git clone https://github.com/rosdyana/semutjs ~/code/semutjs
+cd ~/code/semutjs
+sh install.sh                        # uses this checkout instead of cloning again
+#   or link it yourself:  ln -s "$PWD/semut" ~/.local/bin/semut && ./semut launcher
+```
+
+Run `install.sh` from inside a checkout and it uses that checkout. Your
+edits to the launcher or the SDK then apply right away (see "Hacking on semut"
+below).
+
+### Put it on your PATH
+
+The installer tells you if `~/.local/bin` or `~/.cargo/bin` is missing from
+your PATH. For zsh:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### Check the install
+
+```sh
+semut doctor
+```
 
 ```
-ln -s "$PWD/semut" /usr/local/bin/semut   # or anywhere on PATH
+semut 0.1.0 at /Users/you/.semut/src
+  ok    macOS 15.5
+  ok    clang: Apple clang version 17.0.0
+  ok    xxd
+  ok    tov: /Users/you/.cargo/bin/tov (tov 0.0.1)
+  ok    launcher: /Users/you/Library/Caches/semut/launcher
+  ok    semut on PATH: /Users/you/.local/bin/semut
+All good.
 ```
 
-The launcher builds on first use and is cached in `~/Library/Caches/semut`.
+### Make and build your first app
+
+```sh
+semut new myapp          # scaffolds ./myapp
+cd myapp
+semut dev                # opens the window. Ctrl-C to quit
+semut build              # -> dist/myapp.app (about 1.9 MB); `semut build -Os` for smaller
+open dist/myapp.app
+```
+
+`semut build` signs the app ad hoc, which is enough to run it on your own
+Mac. To give it to other people, sign it with your Developer ID and notarize it:
+
+```sh
+codesign --force --deep --options runtime --sign "Developer ID Application: You (TEAMID)" dist/myapp.app
+ditto -c -k --keepParent dist/myapp.app myapp.zip
+xcrun notarytool submit myapp.zip --keychain-profile <profile> --wait
+xcrun stapler staple dist/myapp.app
+```
+
+### Update and uninstall
+
+```sh
+git -C ~/.semut/src pull && semut launcher       # update to the latest semut
+rm -rf ~/.semut ~/.local/bin/semut ~/Library/Caches/semut  # uninstall semut
+# Tov: cargo uninstall tov && rm -rf ~/.tov
+```
+
+### Troubleshooting
+
+| symptom | fix |
+|---|---|
+| Tov's build fails with ``error[E0658]: `if let` guards are experimental`` | Your Rust is too old for Tov. Run `rustup update stable` and install again. To leave your default toolchain alone, use a newer one already installed: `cargo +<version> install --locked --path ~/.tov/src/crates/tov` |
+| `tov not found` | Tov is in `~/.cargo/bin`. Run `. "$HOME/.cargo/env"` or add it to your PATH |
+| `semut: command not found` | Add `~/.local/bin` to your PATH, or run the script by its full path |
+| `xcrun: error: invalid active developer path` | Run `xcode-select --install` |
+| `backend didn't build` on `semut dev` | Run `semut check` (or `tov check --json backend`) and apply the fixes marked safe |
+| `tov check` passes but `tov build` fails with ``unknown name `fetch` `` | In a module other than `main.tov`, add `import { fetch } from "std/http"` |
+| The window opens blank | Check the terminal: `semut dev` prints the page's console and errors there |
+
+### Hacking on semut
+
+- After changing `native/launcher-macos.m` or `runtime/semut.js`, the
+  launcher rebuilds on the next `semut dev` or `build` (or run `semut launcher`).
+- After changing `runtime/semut.tov`, each app picks up the new copy in
+  `backend/` on its next `dev`, `check` or `build`.
+- Run the end-to-end test after any change: `./test/e2e/run.sh`. It opens a
+  window for a few seconds and prints `17/17 passed`.
 
 ## The API
 
