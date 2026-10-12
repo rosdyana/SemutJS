@@ -1,0 +1,167 @@
+// semut backend SDK for Tov. `semut new` copies this file next to your
+// backend/main.tov (Tov imports are relative), and `semut dev`/`build`
+// refresh it, so don't edit the copy.
+//
+// The launcher (the window) serves HTTP on a Unix socket in a private 0700
+// temp dir and passes its path in SEMUT_SOCKET. This side is the client:
+// one long poll (GET /next) receives calls from the page; answers, events
+// and window commands go out in order through POST /out. No ports.
+//
+//   const app = new App()
+//   app.on("hello", async (p: Hello) => `hi ${p.name}`)
+//   app.onReady(() => app.emit("tick", { n: 1 }))
+//   try await app.run()
+
+import { mkdirSync } from "node:fs"
+import { fetch } from "std/http"
+
+// A call's params arrive as JSON text; a handler answers with JSON text.
+export type Handler = (params: string) => Promise<string, Error>
+
+type Call = { id: int, method: string, params: string }
+
+// A handler that takes no parameters can type them as Empty.
+export type Empty = {}
+
+export class App {
+  private handlers: Map<string, Handler> = new Map()
+  private readyFns: (() => void)[] = []
+  private outbox: string[] = []
+  private flushing = false
+  private sock: string
+
+  constructor() {
+    this.sock = process.env.SEMUT_SOCKET ?? ""
+  }
+
+  // Register a typed call: params are parsed (and checked) as P, and the
+  // result is sent back as JSON. A param that doesn't match P, or an error
+  // the handler throws, rejects the page's promise with its message.
+  on<P, R>(name: string, f: (p: P) => Promise<R, Error>) {
+    this.handlers.set(name, async (raw: string) => {
+      const p: P = try JSON.parse(raw)
+      const r = try await f(p)
+      return JSON.stringify(r)
+    })
+  }
+
+  // Register a call that takes and returns JSON text as it is.
+  handle(name: string, h: Handler) {
+    this.handlers.set(name, h)
+  }
+
+  // Runs each time the page has (re)loaded: a good moment to push state.
+  onReady(f: () => void) {
+    this.readyFns.push(f)
+  }
+
+  // Push an event to the page: semut.api.on(event, data => ...).
+  emit<T>(event: string, data: T) {
+    this.push(`{"t":"emit","event":${JSON.stringify(event)},"data":${JSON.stringify(JSON.stringify(data))}}`)
+  }
+
+  setTitle(title: string) {
+    this.push(`{"t":"title","value":${JSON.stringify(title)}}`)
+  }
+
+  setSize(width: int, height: int) {
+    this.push(`{"t":"size","width":${width},"height":${height}}`)
+  }
+
+  quit() {
+    this.push(`{"t":"quit"}`)
+  }
+
+  // True when started by `semut dev`.
+  get dev(): bool {
+    return process.env.SEMUT_DEV === "1"
+  }
+
+  // The app's id from semut.json ("com.example.myapp").
+  get id(): string {
+    return process.env.SEMUT_APP_ID ?? "semut-app"
+  }
+
+  // ~/Library/Application Support/<id>, created on first use.
+  dataDir(): string throws Error {
+    const dir = `${process.env.HOME ?? "."}/Library/Application Support/${this.id}`
+    try mkdirSync(dir, { recursive: true })
+    return dir
+  }
+
+  // Serve calls until the window goes away, then exit the process (timers
+  // and the like would otherwise keep an orphaned backend alive).
+  async run(): Promise<void> throws Error {
+    if (this.sock === "") {
+      throw new Error("SEMUT_SOCKET is not set: start this app with `semut dev` (or run the built .app)")
+    }
+    while (true) {
+      let calls: Call[] = []
+      try {
+        const res = try await fetch("http://semut/next", { unix: this.sock })
+        calls = try (await res.json()) as Call[]
+      } catch (e) {
+        // The window closed: nothing left to serve.
+        process.exit(0)
+      }
+      for (const c of calls) {
+        if (c.id === 0) {
+          if (c.method === "__ready") {
+            for (const f of this.readyFns) f()
+          }
+        } else {
+          this.dispatch(c)   // not awaited: slow handlers don't hold up the rest
+        }
+      }
+    }
+  }
+
+  private async dispatch(c: Call) {
+    const h = this.handlers.get(c.method)
+    if (h === undefined) {
+      this.ret(c.id, false, `no such method: ${c.method}`)
+      return
+    }
+    try {
+      const v = try await h(c.params)
+      this.ret(c.id, true, v)
+    } catch (e) {
+      this.ret(c.id, false, e.message)
+    }
+  }
+
+  private ret(id: int, ok: bool, payload: string) {
+    if (ok) {
+      this.push(`{"t":"ret","id":${id},"ok":true,"value":${JSON.stringify(payload)}}`)
+    } else {
+      this.push(`{"t":"ret","id":${id},"ok":false,"error":${JSON.stringify(payload)}}`)
+    }
+  }
+
+  // One sender at a time, so answers and events reach the page in the order
+  // they were made; whatever piles up meanwhile goes as one batch.
+  private push(msg: string) {
+    this.outbox.push(msg)
+    if (!this.flushing) {
+      this.flushing = true
+      this.flush()
+    }
+  }
+
+  private async flush() {
+    while (this.outbox.length > 0) {
+      const batch = "[" + this.outbox.join(",") + "]"
+      this.outbox = []
+      try {
+        try await fetch("http://semut/out", {
+          method: "POST",
+          unix: this.sock,
+                    body: batch,
+        })
+      } catch (e) {
+        console.error(`semut: lost ${batch.byteLength} bytes to the window: ${e.message}`)
+      }
+    }
+    this.flushing = false
+  }
+}

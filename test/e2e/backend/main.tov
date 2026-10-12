@@ -1,0 +1,37 @@
+// e2e backend: each handler exercises one path of the bridge.
+import { App, Empty } from "./semut"
+
+type Echo = { text: string }
+type Num = { x: f64, n: int }
+type Burst = { count: int }
+type Sleep = { ms: int }
+
+const app = new App()
+let readyCount = 0
+const bootId = Date.now()
+
+app.on("echo", async (p: Echo) => p.text)
+app.on("nums", async (p: Num) => ({ x: p.x, n: p.n, sum: p.x + p.n }))
+app.on("boom", async (p: Empty): Promise<int, Error> => { throw new Error("kaboom") })
+app.on("burst", async (p: Burst) => {
+  for (let i = 0; i < p.count; i++) app.emit("seq", { i: i })
+  return p.count
+})
+app.on("sleep", async (p: Sleep) => {
+  await new Promise<int>((resolve) => { setTimeout(() => resolve(0), p.ms) })
+  return p.ms
+})
+app.on("readyCount", async (p: Empty) => readyCount)
+app.on("title", async (p: Echo) => { app.setTitle(p.text); return true })
+app.on("bootId", async (p: Empty) => bootId)
+app.on("crash", async (p: Empty) => {
+  setTimeout(() => process.exit(3), 20)
+  return 0
+})
+app.on("crashNow", async (p: Empty): Promise<int, Error> => {
+  process.exit(3)
+  return 0
+})
+app.onReady(() => { readyCount = readyCount + 1 })
+
+try await app.run()

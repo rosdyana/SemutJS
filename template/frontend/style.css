@@ -1,0 +1,52 @@
+:root {
+  color-scheme: light dark;
+  --bg: #faf8f5;
+  --fg: #1d1b18;
+  --muted: #6d665c;
+  --line: #e4ded4;
+  --accent: #b4441c;
+  --err: #b3261e;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1916;
+    --fg: #ece7df;
+    --muted: #9b9388;
+    --line: #34302a;
+    --accent: #ec7a4b;
+    --err: #f2867c;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); }
+header { padding: 28px 32px 8px; }
+h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+.sub { margin: 4px 0 0; color: var(--muted); }
+main { padding: 8px 32px 32px; display: grid; gap: 4px; max-width: 760px; }
+section { padding: 16px 0; border-top: 1px solid var(--line); }
+h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+h2 small { text-transform: none; letter-spacing: 0; font-weight: normal; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+input, textarea {
+  font: inherit; color: inherit; background: transparent;
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px;
+}
+input { flex: 1; min-width: 180px; }
+textarea { width: 100%; resize: vertical; margin-bottom: 8px; }
+input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+button {
+  font: inherit; color: #fff; background: var(--accent); border: 0;
+  border-radius: 6px; padding: 6px 14px; cursor: pointer;
+}
+button:active { transform: translateY(1px); }
+output { display: block; margin-top: 8px; color: var(--muted); min-height: 1.5em; }
+.row output { margin: 0; }
+output.error { color: var(--err); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; margin: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+code { font: 12.5px ui-monospace, Menlo, monospace; color: var(--muted); }
+ul { list-style: none; padding: 0; margin: 10px 0 0; columns: 3; font-size: 13px; max-height: 220px; overflow: auto; }
+li.dir { color: var(--accent); }

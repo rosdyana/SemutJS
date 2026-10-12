@@ -1,0 +1,76 @@
+// Your app's backend: a Tov program, compiled to one native binary.
+//
+// Every app.on(...) is callable from the page:
+//   const result = await semut.api.call("name", { ...params })
+// Params are checked against the handler's parameter type, and a thrown
+// error rejects the page's promise with its message.
+//
+// The page also gets native built-ins without any backend code:
+// semut.dialog.*, semut.win.*, semut.clipboard.*, semut.shell.openExternal.
+
+import { App, Empty } from "./semut"
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs"
+import * as path from "node:path"
+
+type Hello = { name: string }
+type ListDir = { path: string }
+type Entry = { name: string, isDir: bool }
+type Note = { text: string }
+type Fetch = { url: string }
+
+const app = new App()
+const startedAt = Date.now()
+
+app.on("hello", async (p: Hello) => `Hello, ${p.name}, from a native Tov binary.`)
+
+app.on("sysinfo", async (p: Empty) => ({
+  platform: process.platform,
+  cwd: process.cwd(),
+  home: process.env.HOME ?? "",
+  user: process.env.USER ?? "",
+  appId: app.id,
+  dev: app.dev,
+}))
+
+app.on("listDir", async (p: ListDir) => {
+  const entries: Entry[] = []
+  for (const name of try readdirSync(p.path)) {
+    if (entries.length >= 300) break
+    let isDir = false
+    try {
+      readdirSync(path.join(p.path, name))
+      isDir = true
+    } catch (e) {}
+    entries.push({ name: name, isDir: isDir })
+  }
+  return entries
+})
+
+app.on("loadNote", async (p: Empty) => {
+  const file = path.join(try app.dataDir(), "note.txt")
+  return existsSync(file) ? try readFileSync(file, "utf8") : ""
+})
+
+app.on("saveNote", async (p: Note) => {
+  const file = path.join(try app.dataDir(), "note.txt")
+  try writeFileSync(file, p.text)
+  return file
+})
+
+// The backend can reach the network itself (HTTPS included), so the page
+// never needs CORS or keys.
+app.on("fetchStatus", async (p: Fetch) => {
+  const t0 = performance.now()
+  const res = try await fetch(p.url, { signal: AbortSignal.timeout(8000) })
+  const body = try await res.text()
+  return { status: res.status, bytes: body.byteLength, ms: Math.round(performance.now() - t0) }
+})
+
+// Push an event to the page every second.
+setInterval(() => {
+  app.emit("tick", { uptime: Math.floor((Date.now() - startedAt) / 1000) })
+}, 1000)
+
+app.onReady(() => app.emit("hello", { message: "backend is up" }))
+
+try await app.run()

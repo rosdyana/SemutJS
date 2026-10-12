@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>__NAME__</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>__NAME__</h1>
+    <p class="sub">A native window, a Tov backend, and your HTML. <span id="uptime"></span></p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Call the backend</h2>
+      <form id="hello-form" class="row">
+        <input id="name" value="semut" aria-label="Name">
+        <button>Say hello</button>
+      </form>
+      <output id="hello-out"></output>
+    </section>
+
+    <section>
+      <h2>System</h2>
+      <dl id="sysinfo"></dl>
+    </section>
+
+    <section>
+      <h2>Files</h2>
+      <div class="row">
+        <button id="pick">Pick a folder…</button>
+        <code id="dir"></code>
+      </div>
+      <ul id="entries"></ul>
+    </section>
+
+    <section>
+      <h2>Note <small>saved by the backend in the app's data folder</small></h2>
+      <textarea id="note" rows="4" placeholder="Type, then save."></textarea>
+      <div class="row">
+        <button id="save">Save</button>
+        <button id="copy">Copy to clipboard</button>
+        <output id="note-out"></output>
+      </div>
+    </section>
+
+    <section>
+      <h2>Network <small>fetched by the backend, not the page</small></h2>
+      <form id="fetch-form" class="row">
+        <input id="url" value="https://tov.sh/" aria-label="URL">
+        <button>Fetch</button>
+      </form>
+      <output id="fetch-out"></output>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

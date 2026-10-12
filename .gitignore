@@ -1,0 +1,4 @@
+.DS_Store
+.semut/
+dist/
+test/e2e/backend/semut.tov
